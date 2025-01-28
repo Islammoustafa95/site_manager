@@ -1,0 +1,108 @@
+{% extends "templates/web.html" %}
+
+{% block page_content %}
+<div class="site-setup-container">
+    <h1>Set Up Your Site</h1>
+    
+    {% if existing_sites %}
+    <div class="existing-sites mb-5">
+        <h3>Your Sites</h3>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        <th>Plan</th>
+                        <th>Status</th>
+                        <th>Created On</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for site in existing_sites %}
+                    <tr>
+                        <td>{{ site.subdomain }}.zaynerp.com</td>
+                        <td>{{ site.site_plan }}</td>
+                        <td>
+                            <span class="badge {% if site.status == 'Active' %}badge-success{% elif site.status == 'Failed' %}badge-danger{% else %}badge-warning{% endif %}">
+                                {{ site.status }}
+                            </span>
+                        </td>
+                        <td>{{ site.creation_date }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="new-site-section">
+        <h3>Create New Site</h3>
+        <div class="subdomain-section mt-4">
+            <label for="subdomain">Choose Your Subdomain</label>
+            <div class="input-group">
+                <input type="text" id="subdomain" class="form-control" placeholder="your-site">
+                <span class="input-group-text">.zaynerp.com</span>
+            </div>
+            <p id="subdomain-status" class="small text-muted mt-1"></p>
+        </div>
+        
+        <div class="plans-section mt-5">
+            <h4>Select Your Plan</h4>
+            <div id="plans-container" class="row mt-3">
+                {% for plan in plans %}
+                <div class="col-md-4 mb-4">
+                    <div class="plan-card card" data-plan="{{ plan.name }}">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ plan.plan_name }}</h5>
+                            <div class="price">${{ plan.price_monthly }}/month</div>
+                            <div class="details mt-3">
+                                <div>Up to {{ plan.max_users }} users</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div class="action-section mt-5">
+            <button id="create-site-btn" class="btn btn-primary btn-lg">Create My Site</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .site-setup-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+    
+    .plan-card {
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .plan-card.selected {
+        border-color: var(--primary);
+        background-color: var(--primary-light);
+    }
+    
+    .plan-card:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .price {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--primary);
+    }
+</style>
+{% endblock %}
+
+{% block script %}
+<script>
+    {% include "site_manager/templates/pages/site_setup/site_setup.js" %}
+</script>
+{% endblock %}

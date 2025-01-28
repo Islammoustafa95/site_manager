@@ -1,0 +1,195 @@
+{% extends "templates/web.html" %}
+
+{% block page_content %}
+<div class="site-setup-container">
+    <h1>Set Up Your ERPNext Site</h1>
+    
+    {% if existing_sites %}
+    <div class="existing-sites mb-5">
+        <h3>Your Sites</h3>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Site</th>
+                        <th>Plan</th>
+                        <th>Status</th>
+                        <th>Created On</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for site in existing_sites %}
+                    <tr>
+                        <td>{{ site.subdomain }}.zaynerp.com</td>
+                        <td>{{ site.site_plan }}</td>
+                        <td>
+                            <span class="badge {% if site.status == 'Active' %}badge-success{% elif site.status == 'Failed' %}badge-danger{% else %}badge-warning{% endif %}">
+                                {{ site.status }}
+                            </span>
+                        </td>
+                        <td>{{ frappe.format_date(site.creation_date) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="new-site-section">
+        <h3>Create New Site</h3>
+        <div class="subdomain-section mt-4">
+            <label for="subdomain">Choose Your Subdomain</label>
+            <div class="input-group">
+                <input type="text" id="subdomain" class="form-control" placeholder="your-site">
+                <span class="input-group-text">.zaynerp.com</span>
+            </div>
+            <p id="subdomain-status" class="small text-muted mt-1"></p>
+        </div>
+        
+        <div class="plans-section mt-5">
+            <h4>Select Your Plan</h4>
+            <div id="plans-container" class="row mt-3">
+                {% for plan in plans %}
+                <div class="col-md-4 mb-4">
+                    <div class="plan-card card" data-plan="{{ plan.name }}">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ plan.plan_name }}</h5>
+                            <div class="price">${{ plan.price_monthly }}/month</div>
+                            <div class="details mt-3">
+                                <div>Up to {{ plan.max_users }} users</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div class="action-section mt-5">
+            <button id="create-site-btn" class="btn btn-primary btn-lg">Create My Site</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block style %}
+<style>
+    .site-setup-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+    
+    .plan-card {
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .plan-card.selected {
+        border-color: var(--primary);
+        background-color: var(--primary-light);
+    }
+    
+    .plan-card:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .price {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--primary);
+    }
+</style>
+{% endblock %}
+
+{% block script %}
+<script>
+frappe.ready(function() {
+    let selectedPlan = null;
+    let subdomainTimer = null;
+    
+    // Add click handlers to plan cards
+    document.querySelectorAll('.plan-card').forEach(card => {
+        card.addEventListener('click', function() {
+            document.querySelectorAll('.plan-card').forEach(c => 
+                c.classList.remove('selected'));
+            this.classList.add('selected');
+            selectedPlan = this.dataset.plan;
+        });
+    });
+    
+    // Set up subdomain input handler
+    document.getElementById('subdomain').addEventListener('input', function(e) {
+        if (subdomainTimer) {
+            clearTimeout(subdomainTimer);
+        }
+        
+        const subdomain = e.target.value.toLowerCase();
+        // Update input to allowed characters only
+        e.target.value = subdomain.replace(/[^a-z0-9]/g, '');
+        
+        subdomainTimer = setTimeout(() => {
+            frappe.call({
+                method: 'frappe.client.get_list',
+                args: {
+                    doctype: 'Site Subscription',
+                    filters: {
+                        subdomain: subdomain
+                    }
+                },
+                callback: function(response) {
+                    const statusEl = document.getElementById('subdomain-status');
+                    if (response.message && response.message.length > 0) {
+                        statusEl.innerHTML = 'This subdomain is already taken';
+                        statusEl.classList.remove('text-success');
+                        statusEl.classList.add('text-danger');
+                    } else {
+                        statusEl.innerHTML = 'Subdomain is available!';
+                        statusEl.classList.remove('text-danger');
+                        statusEl.classList.add('text-success');
+                    }
+                }
+            });
+        }, 500);
+    });
+    
+    // Set up create site button handler
+    document.getElementById('create-site-btn').addEventListener('click', function() {
+        const subdomain = document.getElementById('subdomain').value;
+        
+        if (!subdomain) {
+            frappe.throw(__('Please enter a subdomain'));
+            return;
+        }
+        
+        if (!selectedPlan) {
+            frappe.throw(__('Please select a plan'));
+            return;
+        }
+        
+        frappe.call({
+            method: 'frappe.client.insert',
+            args: {
+                doc: {
+                    doctype: 'Site Subscription',
+                    subdomain: subdomain,
+                    site_plan: selectedPlan
+                }
+            },
+            callback: function(response) {
+                if (!response.exc) {
+                    frappe.show_alert({
+                        message: __('Site creation started! You will receive an email when it\'s ready.'),
+                        indicator: 'green'
+                    });
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                }
+            }
+        });
+    });
+});
+</script>
+{% endblock %}
