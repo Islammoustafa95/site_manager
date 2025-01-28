@@ -3,6 +3,7 @@ from frappe.model.document import Document
 import subprocess
 import os
 from frappe.utils import now_datetime
+import json
 
 class SiteSubscription(Document):
     def validate(self):
@@ -19,6 +20,17 @@ class SiteSubscription(Document):
         if len(self.subdomain) < 3:
             frappe.throw("Subdomain must be at least 3 characters long")
 
+def get_db_root_password():
+    """Get the MariaDB root password from common site config"""
+    config_path = os.path.join(os.path.dirname(frappe.get_site_path()), 'common_site_config.json')
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+            return config.get('db_root_password', '')
+    except Exception as e:
+        frappe.log_error(f"Error reading root password: {str(e)}")
+        return ''
+
 def create_new_site(subscription):
     """Background job to create a new site"""
     try:
@@ -31,8 +43,13 @@ def create_new_site(subscription):
         # Get the plan details
         plan = frappe.get_doc("Site Plan", doc.site_plan)
         
+        # Get root password from config
+        root_password = get_db_root_password()
+        if not root_password:
+            raise Exception("Database root password not configured")
+        
         # Step 1: Create new site
-        cmd = f"bench new-site {site_name} --admin-password admin"
+        cmd = f"bench new-site {site_name} --mariadb-root-password {root_password} --admin-password admin"
         process = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output, error = process.communicate()
         
@@ -70,10 +87,11 @@ def create_new_site(subscription):
         )
         
     except Exception as e:
-        frappe.log_error(f"Site creation failed for {subscription}: {str(e)}")
+        error_msg = str(e)
+        frappe.log_error(f"Site creation failed for {subscription}: {error_msg}")
         doc = frappe.get_doc("Site Subscription", subscription)
         doc.status = "Failed"
-        doc.creation_logs += f"\nError: {str(e)}"
+        doc.creation_logs = f"Error: {error_msg}"
         doc.save()
 
 def after_insert(doc, method):
