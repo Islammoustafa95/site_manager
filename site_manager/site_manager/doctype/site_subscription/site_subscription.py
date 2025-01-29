@@ -254,32 +254,125 @@ def create_new_site(subscription):
         
         for index, app in enumerate(plan.apps):
             current_progress = 40 + (index * progress_per_app)
+            app_name = app.app_name
+            
             update_subscription_status(
                 doc, 
                 "In Progress", 
-                f"Installing app {index + 1}/{total_apps}: {app.app_name}...",
+                f"Starting installation of app {index + 1}/{total_apps}: {app_name}...",
                 current_progress
             )
-            
-            # Install the app
-            success, install_log = execute_command(
-                f"bench --site {site_name} install-app {app.app_name}"
-            )
+
+            # Enable the site first
+            update_subscription_status(doc, "In Progress", f"Enabling site for {app_name} installation...", current_progress + 2)
+            success, enable_log = execute_command(f"bench --site {site_name} enable-scheduler")
             if not success:
-                raise Exception(f"App installation failed for {app.app_name}: {install_log}")
-            update_subscription_status(doc, "In Progress", install_log, current_progress + (progress_per_app * 0.5))
-            
+                frappe.logger().warning(f"Enable scheduler warning: {enable_log}")
+
             time.sleep(2)
             
-            # Run migration after each app installation
-            success, migrate_log = execute_command(
-                f"bench --site {site_name} migrate"
-            )
-            if not success:
-                raise Exception(f"Migration failed for {app.app_name}: {migrate_log}")
-            update_subscription_status(doc, "In Progress", migrate_log, current_progress + progress_per_app)
+            # Install the app with detailed logging
+            update_subscription_status(doc, "In Progress", f"Installing {app_name}...", current_progress + 5)
+            install_cmd = f"bench --site {site_name} install-app {app_name}"
             
-            time.sleep(2)
+            process = subprocess.Popen(
+                install_cmd.split(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            install_output = []
+            while True:
+                output_line = process.stdout.readline()
+                error_line = process.stderr.readline()
+                
+                if output_line == '' and error_line == '' and process.poll() is not None:
+                    break
+                    
+                if output_line:
+                    install_output.append(output_line.strip())
+                    update_subscription_status(
+                        doc, 
+                        "In Progress", 
+                        f"Installing {app_name}: {output_line.strip()}",
+                        current_progress + 10
+                    )
+                if error_line:
+                    install_output.append(f"Error: {error_line.strip()}")
+                    update_subscription_status(
+                        doc, 
+                        "In Progress", 
+                        f"Installing {app_name} (Error): {error_line.strip()}",
+                        current_progress + 10
+                    )
+            
+            install_success = process.returncode == 0
+            if not install_success:
+                raise Exception(f"App installation failed for {app_name}:\n{''.join(install_output)}")
+            
+            update_subscription_status(
+                doc, 
+                "In Progress", 
+                f"Finished installing {app_name}",
+                current_progress + (progress_per_app * 0.6)
+            )
+            
+            time.sleep(5)  # Longer wait after installation
+            
+            # Run migration with detailed logging
+            update_subscription_status(
+                doc, 
+                "In Progress", 
+                f"Starting migration for {app_name}...",
+                current_progress + (progress_per_app * 0.7)
+            )
+            
+            migrate_cmd = f"bench --site {site_name} migrate"
+            process = subprocess.Popen(
+                migrate_cmd.split(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            migrate_output = []
+            while True:
+                output_line = process.stdout.readline()
+                error_line = process.stderr.readline()
+                
+                if output_line == '' and error_line == '' and process.poll() is not None:
+                    break
+                    
+                if output_line:
+                    migrate_output.append(output_line.strip())
+                    update_subscription_status(
+                        doc, 
+                        "In Progress", 
+                        f"Migrating {app_name}: {output_line.strip()}",
+                        current_progress + (progress_per_app * 0.8)
+                    )
+                if error_line:
+                    migrate_output.append(f"Error: {error_line.strip()}")
+                    update_subscription_status(
+                        doc, 
+                        "In Progress", 
+                        f"Migrating {app_name} (Error): {error_line.strip()}",
+                        current_progress + (progress_per_app * 0.8)
+                    )
+            
+            migrate_success = process.returncode == 0
+            if not migrate_success:
+                raise Exception(f"Migration failed for {app_name}:\n{''.join(migrate_output)}")
+            
+            update_subscription_status(
+                doc, 
+                "In Progress", 
+                f"Finished migration for {app_name}",
+                current_progress + progress_per_app
+            )
+            
+            time.sleep(5)  # Longer wait after migration
 
         # Step 5: Nginx Configuration (90-95%)
         update_subscription_status(doc, "In Progress", "Configuring nginx...", 90)
