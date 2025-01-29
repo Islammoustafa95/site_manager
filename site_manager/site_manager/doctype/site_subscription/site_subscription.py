@@ -225,7 +225,7 @@ def create_new_site(subscription):
 
         # Step 4: Nginx setup (35%)
         update_subscription_status(doc, "In Progress", "Configuring nginx...", 30)
-        nginx_cmd = "echo 'y' | bench setup nginx"
+        nginx_cmd = "bench setup nginx --log_format '' --yes"
         process = subprocess.Popen(nginx_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output, error = process.communicate()
         log = f"Nginx Setup\nOutput: {output.decode()}\nError: {error.decode()}\n"
