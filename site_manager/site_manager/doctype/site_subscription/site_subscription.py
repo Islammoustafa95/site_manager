@@ -30,22 +30,47 @@ def get_db_root_password():
         return ''
 
 def execute_command(cmd, log_prefix="", retries=MAX_RETRIES):
-    """Execute a command with retry mechanism"""
+    """Execute a command with retry mechanism and detailed logging"""
+    frappe.logger().info(f"Executing command: {cmd}")
+    
     for attempt in range(retries):
-        process = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if attempt > 0:
+            frappe.logger().info(f"Retry attempt {attempt + 1}/{retries} for command: {cmd}")
+            
+        process = subprocess.Popen(
+            cmd.split(), 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        
+        # Real-time output logging
+        while True:
+            stdout_line = process.stdout.readline()
+            stderr_line = process.stderr.readline()
+            
+            if stdout_line == '' and stderr_line == '' and process.poll() is not None:
+                break
+                
+            if stdout_line:
+                frappe.logger().info(f"Command output: {stdout_line.strip()}")
+            if stderr_line:
+                frappe.logger().error(f"Command error: {stderr_line.strip()}")
+                
         output, error = process.communicate()
         success = process.returncode == 0
         
         if success:
-            log = f"{log_prefix}\nCommand: {cmd}\nOutput: {output.decode()}\nError: {error.decode()}\n"
+            frappe.logger().info(f"Command completed successfully: {cmd}")
+            log = f"{log_prefix}\nCommand: {cmd}\nOutput: {output}\nError: {error}\n"
             return success, log
         
         if attempt < retries - 1:
             time.sleep(RETRY_DELAY)
-            log = f"Retry {attempt + 1}/{retries} for command: {cmd}\n"
-            frappe.logger().error(log)
+            continue
     
-    log = f"{log_prefix}\nCommand: {cmd}\nOutput: {output.decode()}\nError: {error.decode()}\n"
+    frappe.logger().error(f"Command failed after {retries} attempts: {cmd}")
+    log = f"{log_prefix}\nCommand: {cmd}\nOutput: {output}\nError: {error}\n"
     return success, log
 
 def update_subscription_status(doc, status, log_message, progress=None):
@@ -192,57 +217,38 @@ def create_new_site(subscription):
         if not root_password:
             raise Exception("Database root password not configured")
 
-        # Step 1: Create new site (15%)
-        update_subscription_status(doc, "In Progress", "Creating new site...", 5)
+        # Step 1: Create new site (20%)
+        update_subscription_status(doc, "In Progress", "Creating new site...", 10)
         success, log = execute_command(
             f"bench new-site {site_name} --mariadb-root-password {root_password} --admin-password admin"
         )
         if not success:
             raise Exception(f"Site creation failed: {log}")
-        update_subscription_status(doc, "In Progress", log, 15)
+        update_subscription_status(doc, "In Progress", log, 20)
         
         time.sleep(2)
 
-        # Step 2: Domain setup (20%)
-        update_subscription_status(doc, "In Progress", "Setting up domain...", 18)
+        # Step 2: Domain setup (30%)
+        update_subscription_status(doc, "In Progress", "Setting up domain...", 25)
         success, log = execute_command(
             f"bench setup add-domain {site_name} --site {site_name}"
         )
         if not success:
             raise Exception(f"Domain setup failed: {log}")
-        update_subscription_status(doc, "In Progress", log, 20)
+        update_subscription_status(doc, "In Progress", log, 30)
 
         time.sleep(2)
 
-        # Step 3: Cloudflare DNS setup (25%)
-        update_subscription_status(doc, "In Progress", "Setting up Cloudflare DNS...", 22)
+        # Step 3: Cloudflare DNS setup (40%)
+        update_subscription_status(doc, "In Progress", "Setting up Cloudflare DNS...", 35)
         dns_success, dns_log = setup_cloudflare_dns(site_name)
         if not dns_success:
             raise Exception(f"Cloudflare DNS setup failed: {dns_log}")
-        update_subscription_status(doc, "In Progress", dns_log, 25)
+        update_subscription_status(doc, "In Progress", dns_log, 40)
 
         time.sleep(2)
 
-        # Step 4: Nginx setup (35%)
-        update_subscription_status(doc, "In Progress", "Configuring nginx...", 30)
-        nginx_cmd = "bench setup nginx --log_format '' --yes"
-        process = subprocess.Popen(nginx_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, error = process.communicate()
-        log = f"Nginx Setup\nOutput: {output.decode()}\nError: {error.decode()}\n"
-        update_subscription_status(doc, "In Progress", log, 35)
-
-        time.sleep(2)
-
-        # Step 5: Reload nginx (40%)
-        update_subscription_status(doc, "In Progress", "Reloading nginx...", 38)
-        success, log = execute_command("sudo service nginx reload")
-        if not success:
-            raise Exception(f"Nginx reload failed: {log}")
-        update_subscription_status(doc, "In Progress", log, 40)
-
-        time.sleep(2)
-
-        # Step 6: Install apps one by one (40-90%)
+        # Step 4: Install apps one by one (40-90%)
         total_apps = len(plan.apps)
         progress_per_app = 50 / total_apps if total_apps > 0 else 0
         
@@ -275,12 +281,45 @@ def create_new_site(subscription):
             
             time.sleep(2)
 
-        # Step 7: Health Check (95%)
-        update_subscription_status(doc, "In Progress", "Performing health checks...", 95)
+        # Step 5: Nginx Configuration (90-95%)
+        update_subscription_status(doc, "In Progress", "Configuring nginx...", 90)
+        
+        # Setup nginx with empty log format and auto-yes
+        nginx_cmd = "bench setup nginx --yes --log-format ''"
+        process = subprocess.Popen(nginx_cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, error = process.communicate()
+        log = f"Nginx Setup\nOutput: {output.decode()}\nError: {error.decode()}\n"
+        update_subscription_status(doc, "In Progress", log, 92)
+        
+        time.sleep(2)
+
+        # Restart and reload nginx
+        update_subscription_status(doc, "In Progress", "Restarting nginx...", 93)
+        
+        # Stop nginx first
+        execute_command("sudo service nginx stop")
+        time.sleep(2)
+        
+        # Start nginx
+        success, log = execute_command("sudo service nginx start")
+        if not success:
+            raise Exception(f"Nginx start failed: {log}")
+        update_subscription_status(doc, "In Progress", log, 94)
+        
+        time.sleep(2)
+        
+        # Reload nginx
+        success, log = execute_command("sudo service nginx reload")
+        if not success:
+            raise Exception(f"Nginx reload failed: {log}")
+        update_subscription_status(doc, "In Progress", log, 95)
+
+        # Step 6: Health Check (95-100%)
+        update_subscription_status(doc, "In Progress", "Performing health checks...", 98)
         health_success, health_message = check_site_health(site_name)
         if not health_success:
             raise Exception(f"Site health check failed: {health_message}")
-        update_subscription_status(doc, "In Progress", f"Health check result: {health_message}", 98)
+        update_subscription_status(doc, "In Progress", f"Health check result: {health_message}", 99)
 
         # Final status update
         update_subscription_status(doc, "Active", "Site creation completed successfully!", 100)
@@ -301,7 +340,7 @@ def create_new_site(subscription):
         
     except Exception as e:
         error_msg = str(e)
-        frappe.log_error(f"Site creation failed for {subscription}: {error_msg}")
+        frappe.logger().error(f"Site creation failed for {subscription}: {error_msg}")
         
         # Attempt cleanup
         update_subscription_status(doc, "Failed", "Starting cleanup process...")
@@ -323,9 +362,5 @@ def create_new_site(subscription):
 
 def after_insert(doc, method):
     """Queues the site creation background job"""
-    frappe.enqueue(
-        'site_manager.site_manager.doctype.site_subscription.site_subscription.create_new_site',
-        queue='long',
-        timeout=3000,
-        subscription=doc.name
-    )
+    # Immediately update status to In Progress
+    doc.status = "In Progress"
