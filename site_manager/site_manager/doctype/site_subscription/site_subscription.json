@@ -9,6 +9,7 @@
      "site_plan",
      "status_section",
      "status",
+     "progress",
      "creation_logs",
      "site_details_section",
      "user",
@@ -30,6 +31,12 @@
       "label": "Site Plan",
       "options": "Site Plan",
       "reqd": 1
+     },
+     {
+      "fieldname": "progress",
+      "fieldtype": "Percent",
+      "label": "Progress",
+      "read_only": 1
      },
      {
       "fieldname": "status_section",
